@@ -21,43 +21,49 @@ Es un único repositorio: no hay API ni frontend separado.
 
 | Rol | Permisos |
 |---|---|
-| `superadmin` | Todo: productos, catálogos (categorías, marcas) y **usuarios** |
-| `trabajador` | Productos y catálogos; editar su propio perfil |
+| `superadmin` | Todo: productos, marcas y **usuarios** |
+| `trabajador` | Productos y marcas; editar su propio perfil |
 | Visitante | Ver inicio, catálogo, detalle de producto y marcas |
 
 - No hay registro público: los usuarios los crea el superadmin.
 - No hay recuperación de contraseña por correo: el login indica escribir a contacto.
-- Los roles se manejan con un enum (`app/Enums`) y Policies (`app/Policies`).
+- Los roles se manejan con un enum (`App\Enums\Role`) y Policies (`app/Policies`).
 
 ## Módulos
 
 **Sitio público**
-- Inicio: hero, catálogo destacado, marcas líderes, nosotros (visión / misión), contacto.
-- Catálogo: búsqueda, filtros por categoría / tipo / marca, orden por precio y paginación.
-- Detalle de producto: galería de imágenes, descripción, características y productos similares.
+- Inicio: hero, buscador "Encuentra tu repuesto", productos, novedades (los más recientes), marcas, nosotros y contacto.
+- Catálogo: búsqueda por pieza o referencia (nombre, código, OEM, aplicación) y filtros por sistema, marca y OEM.
+- Detalle de producto: imagen, marca con su logo, código, OEM, descripción, aplicación y productos similares (mismo sistema).
+- Marcas: listado de marcas; cada una lleva al catálogo filtrado.
 
 **Panel (`/admin`)**
-- Productos: listar, crear, editar, ver, eliminar y compartir el enlace público.
-- Categorías, tipos y marcas.
+- Productos: listar, crear, editar, ver, eliminar y compartir el enlace público. Las marcas nuevas se crean desde el mismo formulario.
 - Usuarios (solo superadmin).
 - Mi perfil.
 
-## Modelo de datos (propuesto)
+## Modelo de datos
 
 ```
-users                     nombres, apellidos, dni, email, telefono_1, telefono_2, role, activo, password
-categorias                nombre, slug, activo
-tipos                     nombre, slug
-marcas                    nombre, slug, logo_path, orden, destacada
-productos                 codigo, nombre, slug, descripcion, caracteristicas_principales,
-                          categoria_id, tipo_id, marca_id, precio, stock, publicado,
-                          created_by, updated_by, timestamps, soft deletes
-producto_imagenes         producto_id, path, orden, es_principal
-producto_caracteristicas  producto_id, nombre, valor, orden
-settings                  clave / valor (contacto, redes, WhatsApp, textos de nosotros)
+users ──(created_by / updated_by)──┐
+marcas   ──<                       ▼
+sistemas ──<  productos
 ```
 
-> Pendiente de confirmar: si "tipo" es distinto de "categoría" o una subcategoría (`categorias.parent_id`).
+| Tabla | Columnas |
+|---|---|
+| `users` | nombres, apellidos, dni (único), email (único, login), telefono, role, password, timestamps, soft delete |
+| `marcas` | nombre (único), slug, logo_path |
+| `sistemas` | nombre (único), slug |
+| `productos` | nombre, slug, marca_id, sistema_id, codigo (único), oem, precio, stock, descripcion, aplicacion, imagen_path, created_by, updated_by, timestamps, soft delete |
+
+- **Sistema** es la parte del vehículo a la que pertenece el repuesto (Frenos, Suspensión, Motor...) y hace de categoría del catálogo. La lista se carga con `SistemaSeeder`.
+- **Aplicación** es el vehículo en el que se usa (Volvo FH, Scania P...).
+- "EN STOCK / FUERA DE STOCK" se calcula con `stock > 0` (`$producto->en_stock`).
+- El slug del producto se genera al crearlo (`nombre-codigo`) y no cambia, para no romper enlaces compartidos.
+- `created_by` / `updated_by` se llenan solos con el usuario autenticado.
+- No se puede borrar una marca o un sistema que tenga productos. Productos y usuarios usan soft delete.
+- Contacto, redes y textos de "Nosotros" van en `config/imperial.php`, no en la BD.
 
 ## Rutas
 
@@ -65,12 +71,11 @@ settings                  clave / valor (contacto, redes, WhatsApp, textos de no
 /                       Inicio
 /catalogo               Catálogo (filtros por query string)
 /catalogo/{slug}        Detalle de producto
+/marcas                 Marcas
 /login, /logout
 
 /admin                  Panel (auth)
 /admin/productos        trabajador + superadmin
-/admin/categorias
-/admin/marcas
 /admin/perfil
 /admin/usuarios         solo superadmin
 ```
@@ -114,14 +119,14 @@ cp .env.example .env          # en Windows: copy .env.example .env
 php artisan key:generate
 ```
 
-Crear la base de datos y ajustar `DB_*` en `.env` según tu MySQL (por defecto: `127.0.0.1:3306`, BD `imperial`, usuario `root` sin contraseña):
+Crear la base de datos y ajustar `DB_*` en `.env` según tu MySQL (por defecto: `127.0.0.1:3306`, BD `imperial`, usuario `root` sin contraseña). Completar también `ADMIN_EMAIL` y `ADMIN_PASSWORD`: con esos datos se crea el primer superadmin.
 
 ```sql
 CREATE DATABASE imperial CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ```
 
 ```bash
-php artisan migrate --seed
+php artisan migrate --seed    # sistemas, superadmin y (en local) datos de prueba
 php artisan storage:link
 npm install
 npm run build
@@ -139,7 +144,7 @@ php artisan test
 
 ## Convenciones
 
-- Tablas, columnas y modelos del dominio en español (`Producto`, `Categoria`, `ProductoImagen`). Cuando la pluralización de Laravel no coincide con la tabla (p. ej. `producto_imagenes`), se declara `$table` en el modelo.
+- Tablas, columnas y modelos del dominio en español (`Producto`, `Marca`, `Sistema`). Si un modelo nuevo no pluraliza bien con las reglas de Laravel, se declara `$table`.
 - Validación en FormRequests o en los componentes Livewire.
 - Imágenes subidas siempre en el disco `public`; en BD solo se guarda la ruta.
 - Tests de Feature para los permisos por rol.
